@@ -1,30 +1,16 @@
-import os
-import time
 import logging
+import os
+import sys
+import time
+
 import requests
 import telegram
-import sys
 from dotenv import load_dotenv
 
-from exceptions import StatusCodeError
+from exceptions import StatusCodeError, TelegramAPIError
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    filename='main.log',
-    filemode='w',
-    format='%(asctime)s, %(levelname)s, %(message)s'
-)
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-
-handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter('%(asctime)s, %(levelname)s, %(message)s')
-
-handler.setFormatter(formatter)
-logger.addHandler(handler)
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
@@ -45,11 +31,10 @@ HOMEWORK_VERDICTS = {
 def check_tokens():
     """Проверка переменных окружения."""
     vars = [TELEGRAM_CHAT_ID, TELEGRAM_TOKEN, PRACTICUM_TOKEN]
-    for var in vars:
-        if not var:
-            logging.critical(
-                f'Отсутствует обязательная переменная окружения: {var}')
-            return False
+    if not all(vars):
+        logging.critical(
+            f'Отсутствует обязательная переменная окружения: {vars}')
+        return False
     return True
 
 
@@ -81,7 +66,7 @@ def check_response(response):
         raise TypeError('Некорректный ответ API')
     if 'homeworks' not in response:
         logging.error('Некорректный ответ API: %s', response)
-        raise ValueError('''Некорректный ответ API:
+        raise TelegramAPIError('''Некорректный ответ API:
           отсутствует ключ "homeworks" ''')
     if not isinstance(response['homeworks'], list):
         logging.error('Некорректный ответ API: %s', response)
@@ -99,7 +84,7 @@ def parse_status(homework):
     status = homework.get('status')
     if status not in HOMEWORK_VERDICTS:
         logging.error('Неизвестный статус: %s', status)
-        raise ValueError('Неизвестный статус: %s' % status)
+        raise TelegramAPIError('Неизвестный статус: %s' % status)
     verdict = HOMEWORK_VERDICTS[status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -111,14 +96,30 @@ def send_message(bot, message):
         logging.debug(f'Сообщение успешно отправлено в Telegram: {message}')
     except telegram.error.TelegramError as error:
         logging.error(f'Ошибка при отправке сообщения в Telegram: {error}')
-        raise
+        raise TelegramAPIError('Ошибка при отправке сообщения в Telegram')
 
 
 def main():
     """Основная логика работы бота."""
+    # Logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        filename='main.log',
+        filemode='w',
+        format='%(asctime)s, %(levelname)s, %(message)s')
+
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s, %(levelname)s, %(message)s')
+
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
     # Проверка доступности переменных окружения
     if not check_tokens():
-        return
+        sys.exit(1)
 
     # Инициализация бота
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
